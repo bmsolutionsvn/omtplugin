@@ -17,9 +17,13 @@
     <IsAotCompatible>True</IsAotCompatible>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <LibOmtNetPath Condition="'$(LibOmtNetPath)' == ''">..\OMT-HX\omt\libomtnet\bin\Release\netstandard2.0\libomtnet.dll</LibOmtNetPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <Reference Include="libomtnet">
-      <HintPath>..\libomtnet\bin\Release\netstandard2.0\libomtnet.dll</HintPath>
+      <HintPath>$(LibOmtNetPath)</HintPath>
     </Reference>
   </ItemGroup>
 

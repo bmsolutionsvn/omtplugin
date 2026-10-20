@@ -103,6 +103,14 @@ namespace omtplugin
         private int strideHeight = 0;
         private OBS.video_format sourceFormat = 0;
         private IntPtr tempData = IntPtr.Zero;
+        private IntPtr hxSender = IntPtr.Zero;
+        private NativeOmthx.VideoFormat hxFormat;
+        private int hxFps = 60;
+        private int hxKeyframeCountdown = 0;
+        private int mode = NativeOmthx.ModeFull;
+        private int codec = NativeOmthx.CodecHevc;
+        private OMTQuality quality = OMTQuality.Default;
+        private bool alpha = false;
         public const string DEFAULT_OUTPUT_NAME = "OBS Output";
 
         public OBSOutput(IntPtr output, IntPtr settings)
@@ -320,7 +328,7 @@ namespace omtplugin
                 OMTLogging.Write("StartOutput: " + this.output.ToString(), "OMTOutput");
                 lock (lockSync)
                 {
-                    if (send == null)
+                    if (send == null && hxSender == IntPtr.Zero)
                     {
                         IntPtr audio = OBS.obs_output_audio(this.output);
                         if (audio != IntPtr.Zero)
@@ -394,14 +402,28 @@ namespace omtplugin
                                 audioFrame.Codec = (int)OMTCodec.FPA1;
 
                                 string? name = DEFAULT_OUTPUT_NAME;
+                                mode = NativeOmthx.ModeFull;
+                                codec = NativeOmthx.CodecHevc;
+                                quality = OMTQuality.Default;
+                                alpha = false;
                                 if (outputSettings != null)
                                 {
                                     if (!String.IsNullOrEmpty(outputSettings.Name))
                                     {
                                         name = outputSettings.Name;
                                     }
-                                }      
-                                send = new OMTSend(name, OMTQuality.Default);
+                                    mode = outputSettings.Mode;
+                                    codec = outputSettings.Codec;
+                                    quality = outputSettings.Quality;
+                                    alpha = outputSettings.Alpha;
+                                }
+
+                                if (mode == NativeOmthx.ModeHx)
+                                {
+                                    return StartHxOutput(name);
+                                }
+
+                                send = new OMTSend(name, quality);
 
                                 OBS.obs_output_begin_data_capture(this.output, 0);
                                 return true;
@@ -441,6 +463,11 @@ namespace omtplugin
                         send.Dispose();
                         send = null;
                     }
+                    if (hxSender != IntPtr.Zero)
+                    {
+                        NativeOmthx.SenderClose(hxSender);
+                        hxSender = IntPtr.Zero;
+                    }
                     if (tempData != IntPtr.Zero)
                     {
                         Marshal.FreeHGlobal(tempData);
@@ -454,12 +481,83 @@ namespace omtplugin
             }
         }
 
+        private bool StartHxOutput(string name)
+        {
+            if (sourceFormat != OBS.video_format.VIDEO_FORMAT_NV12 && sourceFormat != OBS.video_format.VIDEO_FORMAT_UYVY &&
+                sourceFormat != OBS.video_format.VIDEO_FORMAT_BGRA && sourceFormat != OBS.video_format.VIDEO_FORMAT_BGRX)
+            {
+                OMTLogging.Write("OMT HX needs the OBS output in NV12, BGRA or UYVY; it is " + sourceFormat, "OMTOutput");
+                return false;
+            }
+            float rate = videoFrame.FrameRate > 0 ? videoFrame.FrameRate : 60;
+            hxFormat = new NativeOmthx.VideoFormat
+            {
+                Width = videoFrame.Width,
+                Height = videoFrame.Height,
+                FpsN = Math.Max(1, (int)Math.Round(rate * 1000.0)),
+                FpsD = 1000,
+                // Alpha rides in BGRA only; the other formats have no channel to carry it.
+                Alpha = (alpha && sourceFormat == OBS.video_format.VIDEO_FORMAT_BGRA) ? 1 : 0,
+            };
+            hxFps = Math.Max(1, (int)Math.Round(rate));
+            hxSender = NativeOmthx.SenderOpen(name, NativeOmthx.ModeHx, NativeOmthx.QualityMedium, codec);
+            if (hxSender == IntPtr.Zero)
+            {
+                OMTLogging.Write("OMT HX sender failed: " + NativeOmthx.Error(), "OMTOutput");
+                return false;
+            }
+            NativeOmthx.SenderKeyframe(hxSender);
+            hxKeyframeCountdown = hxFps * 2;
+            OMTLogging.Write("OMT HX output: " + videoFrame.Width + "x" + videoFrame.Height + " " + rate + " fps " +
+                             (codec == NativeOmthx.CodecH264 ? "H.264" : "HEVC") +
+                             (hxFormat.Alpha != 0 ? " + alpha" : ""), "OMTOutput");
+            OBS.obs_output_begin_data_capture(this.output, 0);
+            return true;
+        }
+
+        private void ProcessHxVideo(ref OBS.video_data frame)
+        {
+            NativeOmthx.VideoFormat f = hxFormat;
+            long timestamp = (long)frame.timestamp / 100;
+            int stride = (int)frame.linesize[0];
+            int ok;
+            if (sourceFormat == OBS.video_format.VIDEO_FORMAT_NV12)
+            {
+                ok = NativeOmthx.SenderVideoNv12(hxSender, ref f, frame.data[0], stride, frame.data[1],
+                    (int)frame.linesize[1], false, timestamp);
+            }
+            else if (sourceFormat == OBS.video_format.VIDEO_FORMAT_UYVY)
+            {
+                f.Alpha = 0;
+                ok = NativeOmthx.SenderVideo(hxSender, ref f, NativeOmthx.PixelUyvy, frame.data[0], stride, false, timestamp);
+            }
+            else
+            {
+                ok = NativeOmthx.SenderVideo(hxSender, ref f, NativeOmthx.PixelBgra, frame.data[0], stride, false, timestamp);
+            }
+            if (ok == 0)
+            {
+                OMTLogging.Write("OMT HX encode failed: " + NativeOmthx.Error(), "OMTOutput");
+            }
+            // A receiver that joins mid-stream waits for a keyframe; two seconds is the most it waits.
+            if (--hxKeyframeCountdown <= 0)
+            {
+                NativeOmthx.SenderKeyframe(hxSender);
+                hxKeyframeCountdown = hxFps * 2;
+            }
+        }
+
         public void ProcessVideo(ref OBS.video_data frame)
         {
             if (frame.data != null)
             {
                 if (frame.data[0] != IntPtr.Zero)
                 {
+                    if (hxSender != IntPtr.Zero)
+                    {
+                        ProcessHxVideo(ref frame);
+                        return;
+                    }
                     videoFrame.Stride = (int)frame.linesize[0];
                     if (sourceFormat == OBS.video_format.VIDEO_FORMAT_P010)
                     {
@@ -493,6 +591,12 @@ namespace omtplugin
             {
                 if (frames.data[0] != IntPtr.Zero)
                 {
+                    if (hxSender != IntPtr.Zero)
+                    {
+                        NativeOmthx.SenderAudio(hxSender, frames.data[0], audioFrame.SampleRate, 2,
+                            (int)frames.frames, (long)frames.timestamp / 100);
+                        return;
+                    }
                     audioFrame.Data = frames.data[0];
                     audioFrame.Timestamp = (Int64)frames.timestamp / 100;
                     audioFrame.SamplesPerChannel = (int)frames.frames;
@@ -609,6 +713,11 @@ namespace omtplugin
             {
                 this.send.Dispose();
                 this.send = null;
+            }
+            if (hxSender != IntPtr.Zero)
+            {
+                NativeOmthx.SenderClose(hxSender);
+                hxSender = IntPtr.Zero;
             }
             if (instance != IntPtr.Zero)
             {

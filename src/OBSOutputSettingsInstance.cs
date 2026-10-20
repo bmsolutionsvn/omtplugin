@@ -53,6 +53,30 @@ namespace omtplugin
                     OBS.obs_properties_set_flags(properties, OBS.OBS_PROPERTIES_DEFER_UPDATE);
                     IntPtr enabledProperty = OBS.obs_properties_add_bool(properties, "enabledProperty", "Output Enabled");
                     IntPtr nameProperty = OBS.obs_properties_add_text(properties, "nameProperty", "Output Name", 0);
+                    IntPtr modeProperty = OBS.obs_properties_add_list(properties, "modeProperty", "Mode", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
+                    if (modeProperty != IntPtr.Zero)
+                    {
+                        OBS.obs_property_list_add_int(modeProperty, "OMT (Full)", NativeOmthx.ModeFull);
+                        if (NativeOmthx.Available)
+                        {
+                            OBS.obs_property_list_add_int(modeProperty, "OMT HX (HEVC/H.264)", NativeOmthx.ModeHx);
+                        }
+                    }
+                    IntPtr qualityProperty = OBS.obs_properties_add_list(properties, "qualityProperty", "Full Quality", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
+                    if (qualityProperty != IntPtr.Zero)
+                    {
+                        foreach (OMTQuality quality in Enum.GetValues<OMTQuality>())
+                        {
+                            OBS.obs_property_list_add_int(qualityProperty, quality.ToString(), (long)quality);
+                        }
+                    }
+                    IntPtr codecProperty = OBS.obs_properties_add_list(properties, "codecProperty", "HX Codec", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
+                    if (codecProperty != IntPtr.Zero)
+                    {
+                        OBS.obs_property_list_add_int(codecProperty, "H.265 (HEVC)", NativeOmthx.CodecHevc);
+                        OBS.obs_property_list_add_int(codecProperty, "H.264 (AVC)", NativeOmthx.CodecH264);
+                    }
+                    OBS.obs_properties_add_bool(properties, "alphaProperty", "HX Alpha");
                     OMTLogging.Write("GetProperties", "OMTOutput");
                 }
                 return properties;

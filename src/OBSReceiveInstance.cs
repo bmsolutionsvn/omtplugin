@@ -39,9 +39,14 @@ namespace omtplugin
         private bool threadRunning = false;
         private Thread? thread;
         private OMTReceive? receiver;
+        private IntPtr hxReceiver = IntPtr.Zero;
         private string? address = null;
         private OMTQuality suggestedQuality = OMTQuality.Default;
         private bool previewMode = false;
+        private int mode = NativeOmthx.ModeFull;
+        private int codec = NativeOmthx.CodecHevc;
+        private int activeMode = NativeOmthx.ModeFull;
+        private string? activeAddress = null;
         private OBS.DisplayColorSpace displayColorSpace = OBS.DisplayColorSpace.Default;
         private OBS.DisplayColorSpace activeColorSpace = OBS.DisplayColorSpace.Default;
 
@@ -65,7 +70,7 @@ namespace omtplugin
                 if (thread == null)
                 {
                     threadRunning = true;
-                    thread = new Thread(VideoProc);
+                    thread = new Thread(mode == NativeOmthx.ModeHx ? VideoProcHx : VideoProc);
                     thread.IsBackground = true;
                     thread.Start();
                     OMTLogging.Write("VideoProc.Started", "OMTSource");
@@ -91,26 +96,55 @@ namespace omtplugin
             try
             {
                 StopThread();
-                if (receiver != null)
-                {
-                    receiver.Dispose();
-                }
+                CloseReceivers();
                 if (!String.IsNullOrEmpty(this.address))
                 {
-                    OMTPreferredVideoFormat preferred = OMTPreferredVideoFormat.UYVYorBGRA;
-                    if (displayColorSpace == OBS.DisplayColorSpace.BT709_P010 || displayColorSpace == OBS.DisplayColorSpace.BT2100_PQ_P010 || displayColorSpace == OBS.DisplayColorSpace.BT2100_HLG_P010)
+                    if (mode == NativeOmthx.ModeHx)
                     {
-                        preferred = OMTPreferredVideoFormat.P216;
+                        hxReceiver = NativeOmthx.ReceiverOpen(this.address);
+                        if (hxReceiver == IntPtr.Zero)
+                        {
+                            OMTLogging.Write("OMT HX receiver failed: " + NativeOmthx.Error(), "OMTSource");
+                            return;
+                        }
+                        // A source already running may be mid-GOP: ask for a keyframe so a picture arrives now.
+                        NativeOmthx.ReceiverKeyframe(hxReceiver);
+                        OMTLogging.Write("New OMT HX Receiver: " + this.address + " (" +
+                                         NativeOmthx.ReceiverDecoder(hxReceiver) + ")", "OMTSource");
                     }
-                    receiver = new OMTReceive(this.address, OMTFrameType.Video | OMTFrameType.Audio, preferred, OMTReceiveFlags.None);
+                    else
+                    {
+                        OMTPreferredVideoFormat preferred = OMTPreferredVideoFormat.UYVYorBGRA;
+                        if (displayColorSpace == OBS.DisplayColorSpace.BT709_P010 || displayColorSpace == OBS.DisplayColorSpace.BT2100_PQ_P010 || displayColorSpace == OBS.DisplayColorSpace.BT2100_HLG_P010)
+                        {
+                            preferred = OMTPreferredVideoFormat.P216;
+                        }
+                        receiver = new OMTReceive(this.address, OMTFrameType.Video | OMTFrameType.Audio, preferred, OMTReceiveFlags.None);
+                        OMTLogging.Write("New Receiver: " + this.address + "," + preferred.ToString(), "OMTSource");
+                    }
                     activeColorSpace = displayColorSpace;
+                    activeMode = mode;
+                    activeAddress = this.address;
                     StartThread();
-                    OMTLogging.Write("New Receiver: " + this.address + "," + preferred.ToString(), "OMTSource");
                 }
             }
             catch (Exception ex)
             {
                 OMTLogging.Write(ex.ToString(), "OMTSource.CreateReceiver");
+            }
+        }
+
+        private void CloseReceivers()
+        {
+            if (receiver != null)
+            {
+                receiver.Dispose();
+                receiver = null;
+            }
+            if (hxReceiver != IntPtr.Zero)
+            {
+                NativeOmthx.ReceiverClose(hxReceiver);
+                hxReceiver = IntPtr.Zero;
             }
         }
 
@@ -120,9 +154,10 @@ namespace omtplugin
             {
                 lock (lockSync)
                 {
-                    if (receiver != null)
+                    bool connected = receiver != null || hxReceiver != IntPtr.Zero;
+                    if (connected)
                     {
-                        if (receiver.Address != this.address || activeColorSpace != displayColorSpace)
+                        if (activeAddress != this.address || activeColorSpace != displayColorSpace || activeMode != mode)
                         {
                             CreateReceiver();
                         }
@@ -142,8 +177,8 @@ namespace omtplugin
                         {
                             receiver.SetFlags(OMTReceiveFlags.None);
                         }
-                        UpdateTally();
                     }
+                    UpdateTally();
                 }
             }
             catch (Exception ex)
@@ -186,7 +221,7 @@ namespace omtplugin
             {
                 lock (lockSync)
                 {
-                    if (receiver != null && source != IntPtr.Zero)
+                    if ((receiver != null || hxReceiver != IntPtr.Zero) && source != IntPtr.Zero)
                     {
                         bool isActive = OBS.obs_source_active(source);
                         bool isShowing = OBS.obs_source_showing(source);
@@ -195,7 +230,14 @@ namespace omtplugin
                         int preview = (!isActive && isShowing) ? 1 : 0;
 
                         OMTLogging.Write($"UpdateTally: showing={isShowing}, active={isActive} -> Preview={preview}, Program={program}", "OMTSource");
-                        receiver.SetTally(new OMTTally(preview, program));
+                        if (mode == NativeOmthx.ModeHx && hxReceiver != IntPtr.Zero)
+                        {
+                            NativeOmthx.ReceiverTally(hxReceiver, preview == 1, program == 1);
+                        }
+                        else if (receiver != null)
+                        {
+                            receiver.SetTally(new OMTTally(preview, program));
+                        }
                     }
                 }
             }
@@ -225,7 +267,22 @@ namespace omtplugin
                             }
                         }
                     }
-                    IntPtr qualityProperty = OBS.obs_properties_add_list(properties, "qualityProperty", "Suggested Quality", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
+                    IntPtr modeProperty = OBS.obs_properties_add_list(properties, "modeProperty", "Mode", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
+                    if (modeProperty != IntPtr.Zero)
+                    {
+                        OBS.obs_property_list_add_int(modeProperty, "OMT (Full)", NativeOmthx.ModeFull);
+                        if (NativeOmthx.Available)
+                        {
+                            OBS.obs_property_list_add_int(modeProperty, "OMT HX (HEVC/H.264)", NativeOmthx.ModeHx);
+                        }
+                    }
+                    IntPtr codecProperty = OBS.obs_properties_add_list(properties, "codecProperty", "HX Codec", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
+                    if (codecProperty != IntPtr.Zero)
+                    {
+                        OBS.obs_property_list_add_int(codecProperty, "H.265 (HEVC)", NativeOmthx.CodecHevc);
+                        OBS.obs_property_list_add_int(codecProperty, "H.264 (AVC)", NativeOmthx.CodecH264);
+                    }
+                    IntPtr qualityProperty = OBS.obs_properties_add_list(properties, "qualityProperty", "Full Quality", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
                     if (qualityProperty != IntPtr.Zero)
                     {
                         foreach (OMTQuality quality in Enum.GetValues<OMTQuality>())
@@ -276,6 +333,9 @@ namespace omtplugin
                     }
                     Int64 q = OBS.obs_data_get_int(settings, "qualityProperty");
                     this.suggestedQuality = (OMTQuality)q;
+                    this.mode = (int)OBS.obs_data_get_int(settings, "modeProperty");
+                    if (!NativeOmthx.Available) this.mode = NativeOmthx.ModeFull;
+                    this.codec = (int)OBS.obs_data_get_int(settings, "codecProperty");
                     this.displayColorSpace = (OBS.DisplayColorSpace)OBS.obs_data_get_int(settings, "csProperty");
                     this.previewMode = OBS.obs_data_get_bool(settings, "previewProperty");
                     
@@ -404,14 +464,66 @@ namespace omtplugin
             }
         }
 
+        private void VideoProcHx()
+        {
+            try
+            {
+                OBS.obs_source_frame frame = new OBS.obs_source_frame();
+                frame.linesize = new uint[8];
+                frame.data = new nint[8];
+                frame.color_matrix = new float[16];
+                frame.color_range_min = new float[3];
+                frame.color_range_max = new float[3];
+                frame.trc = (byte)OBS.video_trc.VIDEO_TRC_DEFAULT;
+                frame.format = OBS.video_format.VIDEO_FORMAT_BGRA;
+                frame.full_range = 1;  // OMT-HX is 8-bit BT.709 full range
+
+                OBS.video_format_get_parameters(OBS.video_colorspace.VIDEO_CS_709, OBS.video_range_type.VIDEO_RANGE_FULL,
+                    frame.color_matrix, frame.color_range_min, frame.color_range_max);
+
+                OBS.obs_source_audio audio = new OBS.obs_source_audio();
+                audio.data = new nint[8];
+                audio.format = OBS.audio_format.AUDIO_FORMAT_FLOAT_PLANAR;
+
+                while (threadRunning)
+                {
+                    IntPtr r = hxReceiver;
+                    if (r == IntPtr.Zero) break;
+                    if (NativeOmthx.ReceiverVideo(r, 100, out NativeOmthx.VideoFormat vf, out _, out IntPtr pixels, out long ts) == 1)
+                    {
+                        frame.width = (uint)vf.Width;
+                        frame.height = (uint)vf.Height;
+                        frame.timestamp = (ulong)ts * 100;
+                        frame.data[0] = pixels;
+                        frame.linesize[0] = (uint)vf.Width * 4;
+                        OBS.obs_source_output_video(this.source, ref frame);
+                    }
+                    if (NativeOmthx.ReceiverAudio(r, 0, out IntPtr planar, out int rate, out int channels, out int samples, out long ats) == 1)
+                    {
+                        if (channels == 1 || channels == 2)
+                        {
+                            audio.speakers = channels == 1 ? OBS.speaker_layout.SPEAKERS_MONO : OBS.speaker_layout.SPEAKERS_STEREO;
+                            audio.samples_per_sec = (uint)rate;
+                            audio.timestamp = (ulong)ats * 100;
+                            audio.frames = (uint)samples;
+                            audio.data[0] = planar;
+                            audio.data[1] = channels == 2 ? planar + (samples * 4) : IntPtr.Zero;
+                            OBS.obs_source_output_audio(this.source, ref audio);
+                        }
+                    }
+                }
+                OMTLogging.Write("HX ThreadExited", "OMTSource");
+            }
+            catch (Exception ex)
+            {
+                OMTLogging.Write(ex.ToString(), "OMTSource.VideoProcHx");
+            }
+        }
+
         protected override void DisposeInternal()
         {
             StopThread();
-            if (receiver != null)
-            {
-                receiver.Dispose();
-                receiver = null;
-            }
+            CloseReceivers();
             if (tempData != IntPtr.Zero)
             {
                 Marshal.FreeHGlobal(tempData);

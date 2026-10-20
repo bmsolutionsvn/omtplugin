@@ -1,4 +1,4 @@
-﻿# Open Media Transport Plugin
+# Open Media Transport Plugin
 
 omtplugin is a cross platform Open Media Transport plugin for OBS (https://obsproject.com)
 
@@ -15,28 +15,38 @@ https://github.com/openmediatransport/
 
 ### OMT Source
 
-Receive audio/video from OMT sources on the network.
+Receive audio/video from OMT sources on the network. The Mode dropdown picks how the picture travels:
 
-Supports HDR workflows using the Color Space dropdown in the OMT Source properties.
+- **OMT (Full)** sends the whole picture with VMX. It carries alpha, keeps HDR sources (Color Space dropdown),
+  and uses Preview Mode for a small picture.
+- **OMT HX** carries HEVC or H.264 from the source's hardware encoder, at 8-bit 4:2:0. It uses far less
+  bandwidth on links that cannot carry the full picture, and it needs no setting on the receiving side.
 
 ### OMT Output
 
-Send audio/video from the main OBS output.
+Send audio/video from the main OBS output, from Tools - OMT Output Settings. The same Mode dropdown applies:
 
-This can be enabled from the Tools - OMT Output Settings menu.
+- **OMT (Full)** sends 10bit+ when P010 or P216 is enabled in OBS settings.
+- **OMT HX** codes HEVC or H.264 (HX Codec) on the GPU, or on the CPU when no hardware encoder is available.
+  **HX Alpha** adds the alpha channel (BGRA output only); alpha always codes at high quality.
 
-This supports HDR OBS workflows and will send 10bit+ when P010 or P216 is enabled in OBS settings.
+OMT-HX costs latency to save bandwidth: about 10-15 ms of encode/decode at 1080p60 and 15-50 Mbps. Full OMT
+is visually lossless and carries the whole picture. See https://github.com/bmsolutionsvn/OMT-HX.
 
 ## Requirements
 
-OBS 31 or higher
+OBS 31 or higher.
+
+OMT HX needs a hardware video encoder: AMF, NVENC, Quick Sync or Media Foundation on Windows; NVENC, or the
+software libx264/libx265 encoders, on Linux. macOS offers Full OMT only for now.
 
 ## Installation
 
 ### Windows
 
 1. Download the Windows binaries from Releases on GitHub
-2. Copy omtplugin.dll and libvmx.dll into the following folder:
+2. Copy `omtplugin.dll`, `libomt.dll`, `libvmx.dll`, `omthx.dll` and the FFmpeg DLLs (`av*.dll`, `sw*.dll`) into
+   the following folder:
 
 ```
 C:\ProgramData\obs-studio\plugins\omtplugin\bin\64bit
@@ -50,7 +60,6 @@ This folder will need to be created if it does not already exist.
 
 1. Download the MacOS pkg from Releases on GitHub
 2. Open the package and follow the instructions to install
-
 
 ### Linux
 
@@ -72,37 +81,23 @@ echo 'export PATH=$PATH:$HOME/.dotnet' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-3. Install Clang and Git
+3. Install the build tools, FFmpeg development packages and Avahi
 
 ```
-sudo apt install clang
-sudo apt install git
+sudo apt install clang cmake ninja-build git pkg-config zlib1g-dev \
+  libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
+  avahi-daemon libavahi-client3
 ```
 
-4. Download the required repositories from Github into the home directory.
+4. Clone the repositories into the home directory. OMT-HX carries libomt, libomtnet and libvmx as submodules.
 
 ```
 cd ~/
-git clone https://github.com/openmediatransport/libvmx
-git clone https://github.com/openmediatransport/libomtnet
-git clone https://github.com/openmediatransport/omtplugin
-```
-5. Build libvmx 
-
-```
-cd ~/libvmx/build
-chmod 755 buildlinuxx64.sh
-./buildlinuxx64.sh
-```
-6. Build libomtnet 
-
-```
-cd ~/libomtnet/build
-chmod 755 buildall.sh
-./buildall.sh
+git clone --recurse-submodules https://github.com/bmsolutionsvn/OMT-HX
+git clone https://github.com/bmsolutionsvn/omtplugin
 ```
 
-7. Build omtplugin
+5. Build OMT-HX and the plugin
 
 ```
 cd ~/omtplugin/build
@@ -110,9 +105,19 @@ chmod 755 buildlinuxx64.sh
 ./buildlinuxx64.sh
 ```
 
-8. Copy libraries into OBS plugins directory
+6. Copy the plugin and libraries into the OBS plugins directory
 
 ```
-sudo cp ~/omtplugin/bin/Release/net8.0/linux-x64/native/omtplugin.so /usr/lib/x86_64-linux-gnu/obs-plugins/
-sudo cp ~/libvmx/build/libvmx.so /usr/lib/x86_64-linux-gnu/obs-plugins/
+sudo cp ~/omtplugin/bin/Release/net8.0/linux-x64/publish/omtplugin.so \
+        ~/omtplugin/bin/Release/net8.0/linux-x64/publish/libomthx.so \
+        ~/omtplugin/bin/Release/net8.0/linux-x64/publish/libomt.so \
+        ~/omtplugin/bin/Release/net8.0/linux-x64/publish/libvmx.so \
+        /usr/lib/x86_64-linux-gnu/obs-plugins/
 ```
+
+FFmpeg comes from the distribution packages above, so the plugin and OMT-HX load the same libavcodec OBS does.
+
+## Build
+
+Windows: `build\buildwinx64.cmd`. Linux: `build/buildlinuxx64.sh`. Both expect an OMT-HX checkout beside this
+repository (`..\OMT-HX`) and build it first: OMT-HX owns libomt, libomtnet and the HX codecs.

@@ -576,5 +576,11 @@ namespace omtplugin
 
         [DllImport(DLL_PATH)]
         public static extern bool obs_data_get_bool(IntPtr data, string name);
+
+        [DllImport(DLL_PATH)]
+        public static extern void obs_data_set_default_int(IntPtr data, string name, Int64 val);
+
+        [DllImport(DLL_PATH)]
+        public static extern void obs_data_set_default_bool(IntPtr data, string name, bool val);
     }
 }

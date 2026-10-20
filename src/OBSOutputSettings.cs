@@ -14,6 +14,10 @@ namespace omtplugin
         private IntPtr configPath = IntPtr.Zero;
         private string? name = null;
         private bool enabled = false;
+        private int mode = NativeOmthx.ModeFull;
+        private OMTQuality quality = OMTQuality.Default;
+        private int codec = NativeOmthx.CodecHevc;
+        private bool alpha = false;
 
         public OBSOutputSettings() 
             : base("omtoutputsettings", "OMT Output Settings", OBS.obs_icon_type.OBS_ICON_TYPE_CAMERA, 
@@ -41,12 +45,20 @@ namespace omtplugin
 
         public string? Name { get { return name; } }
         public bool Enabled {  get { return enabled; } }
+        public int Mode { get { return mode; } }
+        public OMTQuality Quality { get { return quality; } }
+        public int Codec { get { return codec; } }
+        public bool Alpha { get { return alpha; } }
 
         protected override void GetDefaults(nint settings)
         {
             if (settings != IntPtr.Zero)
             {
                 OBS.obs_data_set_default_string(settings, "nameProperty", OBSOutput.DEFAULT_OUTPUT_NAME);
+                OBS.obs_data_set_default_int(settings, "modeProperty", NativeOmthx.ModeFull);
+                OBS.obs_data_set_default_int(settings, "qualityProperty", (long)OMTQuality.Default);
+                OBS.obs_data_set_default_int(settings, "codecProperty", NativeOmthx.CodecHevc);
+                OBS.obs_data_set_default_bool(settings, "alphaProperty", false);
             }
             base.GetDefaults(settings);
         }
@@ -82,6 +94,11 @@ namespace omtplugin
             if (settings != IntPtr.Zero)
             {
                 enabled = OBS.obs_data_get_bool(settings, "enabledProperty");
+                mode = (int)OBS.obs_data_get_int(settings, "modeProperty");
+                if (!NativeOmthx.Available) mode = NativeOmthx.ModeFull;
+                quality = (OMTQuality)OBS.obs_data_get_int(settings, "qualityProperty");
+                codec = (int)OBS.obs_data_get_int(settings, "codecProperty");
+                alpha = OBS.obs_data_get_bool(settings, "alphaProperty");
                 IntPtr n = OBS.obs_data_get_string(settings, "nameProperty");
                 if (n != IntPtr.Zero)
                 {
