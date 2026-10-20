@@ -125,6 +125,9 @@ namespace omtplugin
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr omthx_c_receiver_decoder(IntPtr receiver);
 
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        private static extern int omthx_c_receiver_mode(IntPtr receiver);
+
         public static string Error()
         {
             try
@@ -137,10 +140,22 @@ namespace omtplugin
             }
         }
 
-        public static IntPtr SenderOpen(string name, int mode, int quality, int codec) =>
-            omthx_c_sender_open(name, mode, quality, codec);
+        // libomt cannot probe a sender in its own process (the probe times out and reads Full), so remember the
+        // HX senders this process opened and answer for them without probing.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, string> ownSenders = new();
 
-        public static void SenderClose(IntPtr sender) => omthx_c_sender_close(sender);
+        public static IntPtr SenderOpen(string name, int mode, int quality, int codec)
+        {
+            IntPtr sender = omthx_c_sender_open(name, mode, quality, codec);
+            if (sender != IntPtr.Zero && mode == ModeHx) ownSenders[sender] = SenderAddress(sender);
+            return sender;
+        }
+
+        public static void SenderClose(IntPtr sender)
+        {
+            ownSenders.TryRemove(sender, out _);
+            omthx_c_sender_close(sender);
+        }
 
         public static int SenderVideo(IntPtr sender, ref VideoFormat format, int pixelFormat, IntPtr data, int stride,
             bool premultiplied, long timestamp) =>
@@ -167,6 +182,10 @@ namespace omtplugin
         {
             try
             {
+                foreach (string own in ownSenders.Values)
+                {
+                    if (string.Equals(own, address, StringComparison.OrdinalIgnoreCase)) return ModeHx;
+                }
                 return omthx_c_probe(address, timeoutMs, out _, out int mode, out _) == 1 ? mode : ModeFull;
             }
             catch (Exception)
@@ -194,6 +213,9 @@ namespace omtplugin
             omthx_c_receiver_tally(receiver, preview ? 1 : 0, program ? 1 : 0);
 
         public static void ReceiverKeyframe(IntPtr receiver) => omthx_c_receiver_keyframe(receiver);
+
+        // What the source sent in the last frame received.
+        public static int ReceiverMode(IntPtr receiver) => omthx_c_receiver_mode(receiver);
 
         public static string ReceiverDecoder(IntPtr receiver) =>
             Marshal.PtrToStringUTF8(omthx_c_receiver_decoder(receiver)) ?? "";

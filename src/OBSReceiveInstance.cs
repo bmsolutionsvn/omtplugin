@@ -45,6 +45,7 @@ namespace omtplugin
         private bool previewMode = false;
         private int activeMode = NativeOmthx.ModeFull;
         private string? activeAddress = null;
+        private volatile int switchMode = -1;  // set by a receive loop when the sender now sends the other mode
         private OBS.DisplayColorSpace displayColorSpace = OBS.DisplayColorSpace.Default;
         private OBS.DisplayColorSpace activeColorSpace = OBS.DisplayColorSpace.Default;
 
@@ -99,7 +100,10 @@ namespace omtplugin
                 {
                     // The source says whether it sends Full or HX; the user does not choose. A source that does
                     // not answer in time is read as Full, the path that needs no native library.
-                    int detected = NativeOmthx.Available ? NativeOmthx.DetectMode(this.address) : NativeOmthx.ModeFull;
+                    // A receive loop that saw the mode change already knows it: no need to probe.
+                    int detected = switchMode >= 0 ? switchMode
+                                 : NativeOmthx.Available ? NativeOmthx.DetectMode(this.address) : NativeOmthx.ModeFull;
+                    switchMode = -1;
                     if (detected == NativeOmthx.ModeHx)
                     {
                         hxReceiver = NativeOmthx.ReceiverOpen(this.address);
@@ -127,6 +131,8 @@ namespace omtplugin
                     activeMode = detected;
                     activeAddress = this.address;
                     StartThread();
+                    // An open dialog shows the fields of the mode it was built with: rebuild it for this one.
+                    OBS.obs_source_update_properties(this.source);
                 }
             }
             catch (Exception ex)
@@ -158,7 +164,7 @@ namespace omtplugin
                     bool connected = receiver != null || hxReceiver != IntPtr.Zero;
                     if (connected)
                     {
-                        if (activeAddress != this.address || activeColorSpace != displayColorSpace)
+                        if (activeAddress != this.address || activeColorSpace != displayColorSpace || switchMode >= 0)
                         {
                             CreateReceiver();
                         }
@@ -378,6 +384,14 @@ namespace omtplugin
                     if (r == null) break;
                     if (r.Receive(OMTFrameType.Video | OMTFrameType.Audio, 100, ref mediaFrame))
                     {
+                        // libomt decodes every Full frame, so a coded frame left undecoded means the sender now sends
+                        // HX (any codec): reopen as HX.
+                        if (mediaFrame.Type == OMTFrameType.Video && mediaFrame.DataLength == 0 &&
+                            mediaFrame.CompressedLength > 0 && NativeOmthx.Available)
+                        {
+                            SwitchMode(NativeOmthx.ModeHx);
+                            break;
+                        }
                         if (mediaFrame.DataLength > 0)
                         {
                             if (mediaFrame.Type == OMTFrameType.Audio)
@@ -408,6 +422,10 @@ namespace omtplugin
                                 {
                                     frame.format = OBS.video_format.VIDEO_FORMAT_BGRA;
                                     frame.linesize[0] = frame.width * 4;
+                                    if (mediaFrame.Flags.HasFlag(OMTVideoFlags.Alpha | OMTVideoFlags.PreMultiplied))
+                                    {
+                                        Utils.Unpremultiply(mediaFrame.Data, mediaFrame.Stride, mediaFrame.Width, mediaFrame.Height);
+                                    }
                                     OBS.obs_source_output_video(this.source, ref frame);
                                 } else if (mediaFrame.Codec == (int)OMTCodec.P216)
                                 {
@@ -469,18 +487,34 @@ namespace omtplugin
                 audio.data = new nint[8];
                 audio.format = OBS.audio_format.AUDIO_FORMAT_FLOAT_PLANAR;
 
+                DateTime lastPicture = DateTime.Now;
                 while (threadRunning)
                 {
                     IntPtr r = hxReceiver;
                     if (r == IntPtr.Zero) break;
-                    if (NativeOmthx.ReceiverVideo(r, 100, out NativeOmthx.VideoFormat vf, out _, out IntPtr pixels, out long ts) == 1)
+                    if (NativeOmthx.ReceiverVideo(r, 100, out NativeOmthx.VideoFormat vf, out bool premultiplied, out IntPtr pixels, out long ts) == 1)
                     {
+                        if (premultiplied) Utils.Unpremultiply(pixels, vf.Width * 4, vf.Width, vf.Height);
                         frame.width = (uint)vf.Width;
                         frame.height = (uint)vf.Height;
                         frame.timestamp = (ulong)ts * 100;
                         frame.data[0] = pixels;
                         frame.linesize[0] = (uint)vf.Width * 4;
                         OBS.obs_source_output_video(this.source, ref frame);
+                        lastPicture = DateTime.Now;
+                        // The sender now sends Full: it shows here too, but the Full receiver has its settings.
+                        if (NativeOmthx.ReceiverMode(r) == NativeOmthx.ModeFull)
+                        {
+                            SwitchMode(NativeOmthx.ModeFull);
+                            break;
+                        }
+                    }
+                    else if (DateTime.Now - lastPicture > TimeSpan.FromSeconds(1))
+                    {
+                        // A sender that restarted with other settings (codec, size, alpha) decodes again from its next
+                        // keyframe: ask for one rather than wait for it.
+                        NativeOmthx.ReceiverKeyframe(r);
+                        lastPicture = DateTime.Now;
                     }
                     if (NativeOmthx.ReceiverAudio(r, 0, out IntPtr planar, out int rate, out int channels, out int samples, out long ats) == 1)
                     {
@@ -502,6 +536,15 @@ namespace omtplugin
             {
                 OMTLogging.Write(ex.ToString(), "OMTSource.VideoProcHx");
             }
+        }
+
+        // The receive thread cannot replace its own receiver: ask OBS for an update, which runs UpdateSettings on the
+        // video thread and reopens the receiver in `mode`.
+        private void SwitchMode(int mode)
+        {
+            OMTLogging.Write("Sender changed mode: " + activeAddress + " -> " + (mode == NativeOmthx.ModeHx ? "HX" : "Full"), "OMTSource");
+            switchMode = mode;
+            OBS.obs_source_update(this.source, IntPtr.Zero);
         }
 
         protected override void DisposeInternal()

@@ -533,7 +533,8 @@ namespace omtplugin
             }
             else
             {
-                ok = NativeOmthx.SenderVideo(hxSender, ref f, NativeOmthx.PixelBgra, frame.data[0], stride, false, timestamp);
+                // OBS composites premultiplied, as the Full path above says: do not let the sender multiply again.
+                ok = NativeOmthx.SenderVideo(hxSender, ref f, NativeOmthx.PixelBgra, frame.data[0], stride, true, timestamp);
             }
             if (ok == 0)
             {

@@ -12,8 +12,7 @@ namespace omtplugin
 
         public static void Attach(IntPtr modeProperty)
         {
-            OBS.obs_property_set_modified_callback2(modeProperty, Marshal.GetFunctionPointerForDelegate(callback),
-                IntPtr.Zero);
+            OBS.obs_property_set_modified_callback(modeProperty, Marshal.GetFunctionPointerForDelegate(callback));
         }
 
         public static void Show(IntPtr properties, int mode)

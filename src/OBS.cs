@@ -461,6 +461,12 @@ namespace omtplugin
         [DllImport(DLL_PATH)]
         public static extern void obs_source_release(IntPtr source);
 
+        [DllImport(DLL_PATH)]
+        public static extern void obs_source_update(IntPtr source, IntPtr settings);
+
+        [DllImport(DLL_PATH)]
+        public static extern void obs_source_update_properties(IntPtr source);
+
         [DllImport(DLL_PATH, CharSet=CharSet.Ansi)]
         public static extern IntPtr obs_output_create(string id, string name, IntPtr settings, IntPtr hotkey_data);
         [DllImport(DLL_PATH)]
@@ -571,10 +577,11 @@ namespace omtplugin
         [DllImport(DLL_PATH)]
         public static extern void obs_property_set_visible(IntPtr property, [MarshalAs(UnmanagedType.U1)] bool visible);
 
+        // obs_property_modified_t. Not the "2" variant: that one passes a priv pointer first.
         public delegate bool obs_property_modified(IntPtr properties, IntPtr property, IntPtr settings);
 
         [DllImport(DLL_PATH)]
-        public static extern void obs_property_set_modified_callback2(IntPtr property, IntPtr modified, IntPtr data);
+        public static extern void obs_property_set_modified_callback(IntPtr property, IntPtr modified);
 
         [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
         public static extern IntPtr obs_data_get_string(IntPtr data, string name);

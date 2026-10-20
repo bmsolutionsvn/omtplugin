@@ -6,6 +6,48 @@ namespace omtplugin
 {
     internal class Utils
     {
+        // [a * 256 + c] = c * 255 / a, rounded and capped: premultiplied colour back to straight.
+        private static readonly byte[] divide = BuildDivide();
+
+        private static byte[] BuildDivide()
+        {
+            byte[] t = new byte[256 * 256];
+            for (int a = 1; a < 256; a++)
+            {
+                for (int c = 0; c < 256; c++)
+                {
+                    t[a * 256 + c] = (byte)Math.Min(255, (c * 255 + a / 2) / a);
+                }
+            }
+            return t;
+        }
+
+        // OBS draws a BGRA frame as straight alpha; OMT and OMT-HX may hand it over premultiplied, which OBS would
+        // multiply again and darken every soft edge. Divides the colour back out, in place.
+        // ponytail: one CPU pass per frame (~1-2 ms at 1080p); a DrawAlphaDivide shader if 4K alpha gets heavy.
+        public static void Unpremultiply(IntPtr bgra, int stride, int width, int height)
+        {
+            unsafe
+            {
+                fixed (byte* t = divide)
+                {
+                    for (int y = 0; y < height; y++)
+                    {
+                        byte* p = (byte*)bgra + (long)y * stride;
+                        for (int x = 0; x < width; x++, p += 4)
+                        {
+                            int a = p[3];
+                            if (a == 255 || a == 0) continue;
+                            byte* row = t + a * 256;
+                            p[0] = row[p[0]];
+                            p[1] = row[p[1]];
+                            p[2] = row[p[2]];
+                        }
+                    }
+                }
+            }
+        }
+
         public static void P010ToP216(IntPtr srcY, int srcStrideY, IntPtr srcUV, int srcStrideUV, IntPtr dst, int dstStride, int width, int height)
         {
             unsafe
