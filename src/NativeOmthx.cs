@@ -29,6 +29,44 @@ namespace omtplugin
 
         private const string Dll = "omthx";
 
+        [DllImport("kernel32", CharSet = CharSet.Unicode)]
+        private static extern IntPtr GetModuleHandleW(string name);
+
+        [DllImport("kernel32", CharSet = CharSet.Unicode)]
+        private static extern uint GetModuleFileNameW(IntPtr module, System.Text.StringBuilder path, int size);
+
+        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadLibraryExW(string path, IntPtr file, uint flags);
+
+        private const uint LoadWithAlteredSearchPath = 0x00000008;
+
+        // .NET looks for a bare DllImport name in OBS's own folder, not this plugin's. Load omthx.dll from
+        // beside this module first, with its dependencies (libomt, libvmx, FFmpeg) looked for there too; a later
+        // DllImport("omthx") then finds the module already loaded.
+        static NativeOmthx()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            try
+            {
+                IntPtr module = GetModuleHandleW("omtplugin.dll");
+                var modulePath = new System.Text.StringBuilder(1024);
+                if (module == IntPtr.Zero || GetModuleFileNameW(module, modulePath, modulePath.Capacity) == 0) return;
+                string? dir = Path.GetDirectoryName(modulePath.ToString());
+                if (dir == null) return;
+                string library = Path.Combine(dir, "omthx.dll");
+                if (!File.Exists(library)) return;
+                if (LoadLibraryExW(library, IntPtr.Zero, LoadWithAlteredSearchPath) == IntPtr.Zero)
+                {
+                    libomtnet.OMTLogging.Write("NativeOmthx: cannot load " + library + " (error " +
+                        System.Runtime.InteropServices.Marshal.GetLastWin32Error() + ")", "OMTOutput");
+                }
+            }
+            catch (Exception ex)
+            {
+                libomtnet.OMTLogging.Write(ex.ToString(), "OMTOutput");
+            }
+        }
+
         // HX needs the native library, which ships for Windows and Linux; macOS is plain OMT for now.
         public static bool Available => OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
 
