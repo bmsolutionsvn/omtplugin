@@ -350,7 +350,6 @@ namespace omtplugin
                 frame.color_range_min = new float[3];
                 frame.color_range_max = new float[3];
                 frame.trc = (byte)OBS.video_trc.VIDEO_TRC_DEFAULT;
-                frame.flags = OBS.OBS_SOURCE_FRAME_LINEAR_ALPHA;
 
                 OBS.obs_source_audio audio = new OBS.obs_source_audio();
                 audio.data = new nint[8];
@@ -478,7 +477,6 @@ namespace omtplugin
                 frame.color_range_min = new float[3];
                 frame.color_range_max = new float[3];
                 frame.trc = (byte)OBS.video_trc.VIDEO_TRC_DEFAULT;
-                frame.flags = OBS.OBS_SOURCE_FRAME_LINEAR_ALPHA;
                 frame.format = OBS.video_format.VIDEO_FORMAT_BGRA;
                 frame.full_range = 1;  // OMT-HX is 8-bit BT.709 full range
 

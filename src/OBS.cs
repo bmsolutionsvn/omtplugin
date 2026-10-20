@@ -304,10 +304,6 @@ namespace omtplugin
             public UInt64 timestamp;
         }
 
-        // Alpha blends in linear light, as OBS's own capture sources mark it. Without it OBS multiplies colour by
-        // alpha in sRGB and blends in linear, which darkens every soft edge (a ring 10-15 levels under the background).
-        public const byte OBS_SOURCE_FRAME_LINEAR_ALPHA = 1 << 0;
-
         [StructLayout(LayoutKind.Sequential)]
         public struct obs_source_frame
         {
