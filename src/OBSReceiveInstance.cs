@@ -299,6 +299,8 @@ namespace omtplugin
                         }
                     }
                     IntPtr previewProperty = OBS.obs_properties_add_bool(properties, "previewProperty", "Preview Mode");
+                    ModeVisibility.Attach(modeProperty);
+                    ModeVisibility.Show(properties, mode);
                 }
                 return properties;
             }

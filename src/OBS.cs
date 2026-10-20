@@ -566,6 +566,17 @@ namespace omtplugin
         public static extern IntPtr obs_property_list_clear(IntPtr property);
 
         [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
+        public static extern IntPtr obs_properties_get(IntPtr properties, string property);
+
+        [DllImport(DLL_PATH)]
+        public static extern void obs_property_set_visible(IntPtr property, [MarshalAs(UnmanagedType.U1)] bool visible);
+
+        public delegate bool obs_property_modified(IntPtr properties, IntPtr property, IntPtr settings);
+
+        [DllImport(DLL_PATH)]
+        public static extern void obs_property_set_modified_callback2(IntPtr property, IntPtr modified, IntPtr data);
+
+        [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
         public static extern IntPtr obs_data_get_string(IntPtr data, string name);
 
         [DllImport(DLL_PATH)]

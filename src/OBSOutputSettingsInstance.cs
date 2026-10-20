@@ -77,6 +77,8 @@ namespace omtplugin
                         OBS.obs_property_list_add_int(codecProperty, "H.264 (AVC)", NativeOmthx.CodecH264);
                     }
                     OBS.obs_properties_add_bool(properties, "alphaProperty", "HX Alpha");
+                    ModeVisibility.Attach(modeProperty);
+                    ModeVisibility.Show(properties, parent.Mode);
                     OMTLogging.Write("GetProperties", "OMTOutput");
                 }
                 return properties;
