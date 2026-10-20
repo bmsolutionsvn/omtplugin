@@ -43,8 +43,6 @@ namespace omtplugin
         private string? address = null;
         private OMTQuality suggestedQuality = OMTQuality.Default;
         private bool previewMode = false;
-        private int mode = NativeOmthx.ModeFull;
-        private int codec = NativeOmthx.CodecHevc;
         private int activeMode = NativeOmthx.ModeFull;
         private string? activeAddress = null;
         private OBS.DisplayColorSpace displayColorSpace = OBS.DisplayColorSpace.Default;
@@ -70,7 +68,7 @@ namespace omtplugin
                 if (thread == null)
                 {
                     threadRunning = true;
-                    thread = new Thread(mode == NativeOmthx.ModeHx ? VideoProcHx : VideoProc);
+                    thread = new Thread(activeMode == NativeOmthx.ModeHx ? VideoProcHx : VideoProc);
                     thread.IsBackground = true;
                     thread.Start();
                     OMTLogging.Write("VideoProc.Started", "OMTSource");
@@ -99,7 +97,10 @@ namespace omtplugin
                 CloseReceivers();
                 if (!String.IsNullOrEmpty(this.address))
                 {
-                    if (mode == NativeOmthx.ModeHx)
+                    // The source says whether it sends Full or HX; the user does not choose. A source that does
+                    // not answer in time is read as Full, the path that needs no native library.
+                    int detected = NativeOmthx.Available ? NativeOmthx.DetectMode(this.address) : NativeOmthx.ModeFull;
+                    if (detected == NativeOmthx.ModeHx)
                     {
                         hxReceiver = NativeOmthx.ReceiverOpen(this.address);
                         if (hxReceiver == IntPtr.Zero)
@@ -123,7 +124,7 @@ namespace omtplugin
                         OMTLogging.Write("New Receiver: " + this.address + "," + preferred.ToString(), "OMTSource");
                     }
                     activeColorSpace = displayColorSpace;
-                    activeMode = mode;
+                    activeMode = detected;
                     activeAddress = this.address;
                     StartThread();
                 }
@@ -157,7 +158,7 @@ namespace omtplugin
                     bool connected = receiver != null || hxReceiver != IntPtr.Zero;
                     if (connected)
                     {
-                        if (activeAddress != this.address || activeColorSpace != displayColorSpace || activeMode != mode)
+                        if (activeAddress != this.address || activeColorSpace != displayColorSpace)
                         {
                             CreateReceiver();
                         }
@@ -230,7 +231,7 @@ namespace omtplugin
                         int preview = (!isActive && isShowing) ? 1 : 0;
 
                         OMTLogging.Write($"UpdateTally: showing={isShowing}, active={isActive} -> Preview={preview}, Program={program}", "OMTSource");
-                        if (mode == NativeOmthx.ModeHx && hxReceiver != IntPtr.Zero)
+                        if (hxReceiver != IntPtr.Zero)
                         {
                             NativeOmthx.ReceiverTally(hxReceiver, preview == 1, program == 1);
                         }
@@ -267,21 +268,6 @@ namespace omtplugin
                             }
                         }
                     }
-                    IntPtr modeProperty = OBS.obs_properties_add_list(properties, "modeProperty", "Mode", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
-                    if (modeProperty != IntPtr.Zero)
-                    {
-                        OBS.obs_property_list_add_int(modeProperty, "OMT (Full)", NativeOmthx.ModeFull);
-                        if (NativeOmthx.Available)
-                        {
-                            OBS.obs_property_list_add_int(modeProperty, "OMT HX (HEVC/H.264)", NativeOmthx.ModeHx);
-                        }
-                    }
-                    IntPtr codecProperty = OBS.obs_properties_add_list(properties, "codecProperty", "HX Codec", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
-                    if (codecProperty != IntPtr.Zero)
-                    {
-                        OBS.obs_property_list_add_int(codecProperty, "H.265 (HEVC)", NativeOmthx.CodecHevc);
-                        OBS.obs_property_list_add_int(codecProperty, "H.264 (AVC)", NativeOmthx.CodecH264);
-                    }
                     IntPtr qualityProperty = OBS.obs_properties_add_list(properties, "qualityProperty", "Full Quality", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
                     if (qualityProperty != IntPtr.Zero)
                     {
@@ -299,8 +285,6 @@ namespace omtplugin
                         }
                     }
                     IntPtr previewProperty = OBS.obs_properties_add_bool(properties, "previewProperty", "Preview Mode");
-                    ModeVisibility.Attach(modeProperty);
-                    ModeVisibility.Show(properties, mode);
                 }
                 return properties;
             }
@@ -335,9 +319,6 @@ namespace omtplugin
                     }
                     Int64 q = OBS.obs_data_get_int(settings, "qualityProperty");
                     this.suggestedQuality = (OMTQuality)q;
-                    this.mode = (int)OBS.obs_data_get_int(settings, "modeProperty");
-                    if (!NativeOmthx.Available) this.mode = NativeOmthx.ModeFull;
-                    this.codec = (int)OBS.obs_data_get_int(settings, "codecProperty");
                     this.displayColorSpace = (OBS.DisplayColorSpace)OBS.obs_data_get_int(settings, "csProperty");
                     this.previewMode = OBS.obs_data_get_bool(settings, "previewProperty");
                     

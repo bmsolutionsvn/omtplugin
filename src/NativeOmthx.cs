@@ -61,6 +61,10 @@ namespace omtplugin
         private static extern IntPtr omthx_c_sender_address(IntPtr sender);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        private static extern int omthx_c_probe([MarshalAs(UnmanagedType.LPUTF8Str)] string address, int timeoutMs,
+            out VideoFormat format, out int mode, out int codec);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr omthx_c_receiver_open([MarshalAs(UnmanagedType.LPUTF8Str)] string address);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -118,6 +122,20 @@ namespace omtplugin
             Marshal.PtrToStringUTF8(omthx_c_sender_address(sender)) ?? "";
 
         public static IntPtr ReceiverOpen(string address) => omthx_c_receiver_open(address);
+
+        // What the selected source sends. A source that does not answer in time is treated as plain OMT,
+        // the path that has always worked without the native library.
+        public static int DetectMode(string address, int timeoutMs = 1500)
+        {
+            try
+            {
+                return omthx_c_probe(address, timeoutMs, out _, out int mode, out _) == 1 ? mode : ModeFull;
+            }
+            catch (Exception)
+            {
+                return ModeFull;
+            }
+        }
 
         public static void ReceiverClose(IntPtr receiver) => omthx_c_receiver_close(receiver);
 
