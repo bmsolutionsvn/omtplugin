@@ -285,6 +285,7 @@ namespace omtplugin
                         }
                     }
                     IntPtr previewProperty = OBS.obs_properties_add_bool(properties, "previewProperty", "Preview Mode");
+                    ModeVisibility.ShowFull(properties, hxReceiver == IntPtr.Zero);
                 }
                 return properties;
             }

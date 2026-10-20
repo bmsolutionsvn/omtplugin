@@ -24,6 +24,14 @@ namespace omtplugin
             Visible(properties, "alphaProperty", hx);
         }
 
+        // The source has no Mode: these belong to a Full source, so hide them once the selected source is HX.
+        public static void ShowFull(IntPtr properties, bool full)
+        {
+            Visible(properties, "qualityProperty", full);
+            Visible(properties, "csProperty", full);
+            Visible(properties, "previewProperty", full);
+        }
+
         private static bool Apply(IntPtr properties, IntPtr property, IntPtr settings)
         {
             Show(properties, (int)OBS.obs_data_get_int(settings, "modeProperty"));
