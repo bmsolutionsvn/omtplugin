@@ -103,7 +103,7 @@ namespace omtplugin
             out VideoFormat format, out int mode, out int codec);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr omthx_c_receiver_open([MarshalAs(UnmanagedType.LPUTF8Str)] string address);
+        private static extern IntPtr omthx_c_receiver_open([MarshalAs(UnmanagedType.LPUTF8Str)] string address, int preview);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         private static extern void omthx_c_receiver_close(IntPtr receiver);
@@ -174,7 +174,8 @@ namespace omtplugin
         public static string SenderAddress(IntPtr sender) =>
             Marshal.PtrToStringUTF8(omthx_c_sender_address(sender)) ?? "";
 
-        public static IntPtr ReceiverOpen(string address) => omthx_c_receiver_open(address);
+        public static IntPtr ReceiverOpen(string address, bool preview = false) =>
+            omthx_c_receiver_open(address, preview ? 1 : 0);
 
         // What the selected source sends. A source that does not answer in time is treated as plain OMT,
         // the path that has always worked without the native library.

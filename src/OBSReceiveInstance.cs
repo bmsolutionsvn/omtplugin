@@ -44,6 +44,7 @@ namespace omtplugin
         private OMTQuality suggestedQuality = OMTQuality.Default;
         private bool previewMode = false;
         private int activeMode = NativeOmthx.ModeFull;
+        private bool activePreview = false;  // the preview flag the open receiver was built with
         private string? activeAddress = null;
         private volatile int switchMode = -1;  // set by a receive loop when the sender now sends the other mode
         private OBS.DisplayColorSpace displayColorSpace = OBS.DisplayColorSpace.Default;
@@ -106,7 +107,7 @@ namespace omtplugin
                     switchMode = -1;
                     if (detected == NativeOmthx.ModeHx)
                     {
-                        hxReceiver = NativeOmthx.ReceiverOpen(this.address);
+                        hxReceiver = NativeOmthx.ReceiverOpen(this.address, previewMode);
                         if (hxReceiver == IntPtr.Zero)
                         {
                             OMTLogging.Write("OMT HX receiver failed: " + NativeOmthx.Error(), "OMTSource");
@@ -129,6 +130,7 @@ namespace omtplugin
                     }
                     activeColorSpace = displayColorSpace;
                     activeMode = detected;
+                    activePreview = previewMode;
                     activeAddress = this.address;
                     StartThread();
                     // An open dialog shows the fields of the mode it was built with: rebuild it for this one.
@@ -164,7 +166,8 @@ namespace omtplugin
                     bool connected = receiver != null || hxReceiver != IntPtr.Zero;
                     if (connected)
                     {
-                        if (activeAddress != this.address || activeColorSpace != displayColorSpace || switchMode >= 0)
+                        if (activeAddress != this.address || activeColorSpace != displayColorSpace ||
+                            activePreview != previewMode || switchMode >= 0)
                         {
                             CreateReceiver();
                         }
