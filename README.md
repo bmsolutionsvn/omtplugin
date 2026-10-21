@@ -15,12 +15,15 @@ https://github.com/openmediatransport/
 
 ### OMT Source
 
-Receive audio/video from OMT sources on the network. The Mode dropdown picks how the picture travels:
+Receive audio/video from OMT sources on the network. There is no Mode setting: the source is probed on
+connect and follows the sender if it switches mode.
 
-- **OMT (Full)** sends the whole picture with VMX. It carries alpha, keeps HDR sources (Color Space dropdown),
-  and uses Preview Mode for a small picture.
+- **OMT (Full)** sends the whole picture with VMX. It carries alpha and keeps HDR sources (Color Space
+  dropdown).
 - **OMT HX** carries HEVC or H.264 from the source's hardware encoder, at 8-bit 4:2:0. It uses far less
-  bandwidth on links that cannot carry the full picture, and it needs no setting on the receiving side.
+  bandwidth on links that cannot carry the full picture.
+
+Preview Mode works in both modes and asks the sender for a small picture.
 
 ### OMT Output
 
